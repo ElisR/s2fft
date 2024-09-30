@@ -236,16 +236,7 @@ def inverse_jax(
             L, N, sampling, nside, False, reality, L_lower
         )
 
-    fban = jnp.zeros(samples.f_shape(L, N, sampling, nside), dtype=jnp.complex128)
-
-    flmn = flmn.at[:, L_lower:].set(
-        jnp.einsum(
-            "...nlm,...l->...nlm",
-            flmn[:, L_lower:],
-            jnp.sqrt((2 * jnp.arange(L_lower, L) + 1) / (16 * jnp.pi**3)),
-            optimize=True,
-        )
-    )
+    flmn, fban = _inverse_norm(flmn, L, N, L_lower=L_lower, sampling=sampling)
 
     n_start_ind = 0 if reality else -N + 1
     spins = jnp.arange(n_start_ind, N)
@@ -262,12 +253,8 @@ def inverse_jax(
             in_axes=(0, 0, 0, 0),
         )(flmn[N - 1 + n_start_ind :], spins, precomps[0], precomps[1])
     )
-    if reality:
-        f = jnp.fft.irfft(fban[N - 1 :], 2 * N - 1, axis=0, norm="forward")
-    else:
-        f = jnp.fft.ifft(jnp.fft.ifftshift(fban, axes=0), axis=0, norm="forward")
 
-    return f
+    return _fban_to_f(fban, L, N, reality=reality)
 
 
 def inverse_jax_ssht(
@@ -735,12 +722,12 @@ def _reality_and_norm(
     return flmn
 
 
-@partial(jit, static_argnums=(1, 2, 3, 4))
+# @partial(jit, static_argnums=(1, 2, 3, 4))
 def _inverse_norm(
-    flmn: jnp.ndarray, L: int, N: int, L_lower: int = 0, sampling: str = "mw"
+    flmn: jnp.ndarray, L: int, N: int, L_lower: int = 0, sampling: str = "mw", nside: int = None
 ):
-    """Private function which normalised flmn for inverse Wigner (C backend)"""
-    fban = jnp.zeros(samples.f_shape(L, N, sampling), dtype=jnp.complex128)
+    """Private function which normalised flmn for inverse Wigner."""
+    fban = jnp.zeros(samples.f_shape(L, N, sampling, nside), dtype=jnp.complex128)
 
     flmn = flmn.at[:, L_lower:].set(
         jnp.einsum(
@@ -779,11 +766,11 @@ def _flmn_to_fban(
     return fban
 
 
-@partial(jit, static_argnums=(1, 2, 3))
+# @partial(jit, static_argnums=(1, 2, 3))
 def _fban_to_f(fban: jnp.ndarray, L: int, N: int, reality: bool = False) -> jnp.ndarray:
-    """Private function which maps from fban to f (C backend)"""
+    """Private function which maps from fban to f."""
     if reality:
-        f = jnp.fft.irfft(fban[N - 1 :], 2 * N - 1, axis=-3, norm="forward")
+        f = jnp.fft.irfft(fban[N - 1 :], 2 * N - 1, axis=0, norm="forward")
     else:
-        f = jnp.fft.ifft(jnp.fft.ifftshift(fban, axes=-3), axis=-3, norm="forward")
+        f = jnp.fft.ifft(jnp.fft.ifftshift(fban, axes=0), axis=0, norm="forward")
     return f
